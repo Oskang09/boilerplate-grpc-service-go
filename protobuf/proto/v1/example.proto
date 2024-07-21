@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+option go_package = "service/protobuf/go/v1";
+
+import "model/example.proto";
+
+service ExampleService {
+    rpc ExampleHandler(ExampleRequest) returns (ExampleResponse) {}
+}
+
+message ExampleRequest {
+
+}
+
+message ExampleResponse {
+    model.Example Item = 1;
+}

@@ -1,0 +1,88 @@
+image: docker:20.10.6
+
+variables:
+  DOCKER_TLS_CERTDIR: ""
+  DOCKER_DRIVER: overlay2
+  DOCKER_HOST: tcp://docker:2375
+  KUBECONFIG: ""
+  DOCKER_IMAGE: "{docker-image-path}"
+  PRIVATE_DOCKER_IMAGE: "{docker-image-path}"
+  SERVICE_NAME: "{project-name}"
+
+services:
+  - name: docker:20.10.6-dind
+    entrypoint: ["dockerd-entrypoint.sh", "--tls=false"]
+
+stages:
+  - sqc
+  - build
+  - deploy
+
+before_script:
+  - |
+    if [ $CI_COMMIT_BRANCH == "master" ]; then
+      export ENVIRONMENT=production
+    else
+      export ENVIRONMENT=sandbox
+    fi
+    export DOCKER_FILE=deployment/Dockerfile
+    export KUBECONFIG=$PWD/config
+
+build:
+  stage: build
+  only:
+    refs:
+      - master
+      - sandbox
+  script: |
+    if [ $CI_COMMIT_BRANCH == "master" ]; then
+      docker login -u $ALIYUN_DOCKER_USERNAME -p $ALIYUN_DOCKER_PASSWORD registry-intl.ap-southeast-3.aliyuncs.com
+    else
+      docker login -u $ALIYUN_DOCKER_USERNAME -p $ALIYUN_DOCKER_PASSWORD registry-intl.ap-southeast-3.aliyuncs.com
+    fi
+    mkdir -p /app
+    cp -r $CI_PROJECT_DIR /app
+    docker build --cache-from $DOCKER_IMAGE:$ENVIRONMENT-latest --build-arg env=$ENVIRONMENT -t $DOCKER_IMAGE:$ENVIRONMENT-$CI_COMMIT_SHA -t $DOCKER_IMAGE:$ENVIRONMENT-latest  . -f $DOCKER_FILE
+    docker push $DOCKER_IMAGE:$ENVIRONMENT-$CI_COMMIT_SHA
+    docker push $DOCKER_IMAGE:$ENVIRONMENT-latest
+
+deploy:
+  stage: deploy
+  image: google/cloud-sdk
+  only:
+    refs:
+      - master
+      - sandbox
+  script: |
+      if [ $CI_COMMIT_BRANCH == "master" ]; then
+        echo ${KUBE_CREDENTIALS} | base64 --decode --ignore-garbage > $KUBECONFIG    
+      else
+        echo ${KUBE_CREDENTIALS} | base64 --decode --ignore-garbage > $KUBECONFIG    
+      fi
+      kubectl delete cronjobs -n ${ENVIRONMENT} --selector=app=$SERVICE_NAME
+      kubectl apply -f deployment/$ENVIRONMENT/kubernetes.yaml
+      kubectl apply -f deployment/$ENVIRONMENT/cronjob
+      kubectl set image deployment $SERVICE_NAME $SERVICE_NAME=$PRIVATE_DOCKER_IMAGE:$ENVIRONMENT-$CI_COMMIT_SHA --namespace=$ENVIRONMENT
+
+sonarqube-check:
+  stage: sqc
+  image: 
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script: |    
+      if [[ -n "$CIRCLE_SHA1" ]]; then
+        echo -e "\nsonar.projectVersion=$CI_COMMIT_BRANCH-$CI_COMMIT_SHORT_SHA" >> sonar-project.properties
+      else
+        echo -e "\nsonar.projectVersion=latest" >> sonar-project.properties
+      fi
+      sonar-scanner
+  allow_failure: true
+  only:
+    - sandbox

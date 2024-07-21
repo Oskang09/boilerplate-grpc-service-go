@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+option go_package = "service/protobuf/go/model";
+
+package model;
+
+message Example {
+    string ID = 1;
+    string CreatedDateTime = 6;
+    string UpdatedDateTime = 7;
+}

@@ -1,0 +1,11 @@
+#Go Vendor (Package management)
+vendor
+vendor.orig
+debug
+wallet-api
+debug~
+.vendor-new
+
+wallet-api
+.DS_Store
+__debug_bin*
